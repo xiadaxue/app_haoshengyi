@@ -1,0 +1,94 @@
+name: Flutter CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # 允许手动触发工作流
+
+jobs:
+  analyze:
+    name: 代码分析与测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.3.0'
+          channel: 'stable'
+      - name: 获取依赖
+        run: flutter pub get
+      - name: 代码格式检查
+        run: dart format --output=none --set-exit-if-changed .
+      - name: 静态分析
+        run: flutter analyze
+      - name: 运行测试
+        run: flutter test
+  
+  build_android:
+    name: 构建Android版本
+    needs: analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.3.0'
+          channel: 'stable'
+      - name: 获取依赖
+        run: flutter pub get
+      - name: 构建APK
+        run: flutter build apk --release
+      - name: 上传APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 7
+  
+  build_ios:
+    name: 构建iOS版本
+    needs: analyze
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.3.0'
+          channel: 'stable'
+      - name: 获取依赖
+        run: flutter pub get
+      - name: 构建iOS
+        run: flutter build ios --release --no-codesign
+      - name: 压缩iOS输出文件
+        run: |
+          cd build/ios/iphoneos
+          zip -r ios-build.zip Runner.app
+      - name: 上传iOS构建
+        uses: actions/upload-artifact@v3
+        with:
+          name: ios-build
+          path: build/ios/iphoneos/ios-build.zip
+          retention-days: 7
+  
+  build_web:
+    name: 构建Web版本
+    needs: analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.3.0'
+          channel: 'stable'
+      - name: 获取依赖
+        run: flutter pub get
+      - name: 构建Web
+        run: flutter build web --release
+      - name: 上传Web构建
+        uses: actions/upload-artifact@v3
+        with:
+          name: web-build
+          path: build/web
+          retention-days: 7 

@@ -1,0 +1,2 @@
+/Users/xiaxuetao/AndroidStudioProjects/haoshengyi_flutter/flutter_application_1/android/app/.cxx/RelWithDebInfo/1h6rz605/armeabi-v7a/CMakeFiles/edit_cache.dir
+/Users/xiaxuetao/AndroidStudioProjects/haoshengyi_flutter/flutter_application_1/android/app/.cxx/RelWithDebInfo/1h6rz605/armeabi-v7a/CMakeFiles/rebuild_cache.dir

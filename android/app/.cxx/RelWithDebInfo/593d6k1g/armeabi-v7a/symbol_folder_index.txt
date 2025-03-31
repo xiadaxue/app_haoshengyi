@@ -1,0 +1,1 @@
+/Users/xiaxuetao/AndroidStudioProjects/haoshengyi_flutter/flutter_application_1/build/app/intermediates/cxx/RelWithDebInfo/593d6k1g/obj/armeabi-v7a
