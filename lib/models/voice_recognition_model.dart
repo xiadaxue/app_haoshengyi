@@ -35,6 +35,8 @@ class ParsedData {
   final List<Products> products; // 默认值为空列表
   final List<Container> containers; // 默认值为空列表
   final List<String> tags; // 默认值为空列表
+  final String? classType;
+  final String? settlementStatus;
 
   ParsedData({
     required this.type,
@@ -46,6 +48,8 @@ class ParsedData {
     this.products = const [], // 设置默认值为空列表
     this.containers = const [], // 设置默认值为空列表
     this.tags = const [], // 设置默认值为空列表
+    this.classType = '',
+    this.settlementStatus = '',
   });
 
   /// 从JSON映射转换为ParsedData对象
@@ -73,6 +77,8 @@ class ParsedData {
       tags: json['tags'] != null
           ? List<String>.from(json['tags'])
           : [], // 如果没有 'tags' 键，则默认为空列表
+      classType: json['class_type'] ?? '',
+      settlementStatus: json['settlement_status'] ?? '',
     );
   }
 
@@ -111,6 +117,13 @@ class ParsedData {
       data['tags'] = tags;
     }
 
+    if (classType != null) {
+      data['class_type'] = classType;
+    }
+
+    if (settlementStatus != null) {
+      data['settlement_status'] = settlementStatus;
+    }
     return data;
   }
 }

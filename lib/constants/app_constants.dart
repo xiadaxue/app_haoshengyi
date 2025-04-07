@@ -18,6 +18,14 @@ class AppConstants {
   static const String returnType = 'return';
   static const String settleType = 'settle';
 
+  // 交易分类类型
+  static const String cashType = 'cash';
+  static const String assetType = 'asset';
+
+  // 结算状态
+  static const String settledStatus = 'settled';
+  static const String unsettledStatus = 'unsettled';
+
   // 底部导航栏索引
   static const int homeIndex = 0;
   static const int transactionsIndex = 1;

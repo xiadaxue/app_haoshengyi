@@ -52,12 +52,38 @@ class _MainScreenState extends State<MainScreen> {
     // 获取交易记录和统计数据
     final transactionProvider =
         Provider.of<TransactionProvider>(context, listen: false);
-    transactionProvider.getTransactions(refresh: true);
-    transactionProvider.getTodaySummary();
+
+    // 初始化数据
+    await transactionProvider.initializeData();
   }
 
   // 切换页面
   void _onItemTapped(int index) {
+    // 如果是从其他页面切换到首页（索引0），刷新首页数据
+    if (_currentIndex != 0 && index == 0) {
+      // 延迟一帧后刷新首页数据
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final provider =
+            Provider.of<TransactionProvider>(context, listen: false);
+        final today = DateTime.now();
+        final todayStr =
+            "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
+        provider.getHomePageData(todayStr);
+      });
+    }
+    // 如果是从其他页面切换到交易记录页（索引1），刷新交易记录数据
+    else if (_currentIndex != 1 && index == 1) {
+      // 延迟一帧后刷新交易记录数据
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final provider =
+            Provider.of<TransactionProvider>(context, listen: false);
+        final now = DateTime.now();
+        final currentMonth =
+            "${now.year}年${now.month.toString().padLeft(2, '0')}月";
+        provider.getTransactionsByMonth(currentMonth);
+      });
+    }
+
     setState(() {
       _currentIndex = index;
     });

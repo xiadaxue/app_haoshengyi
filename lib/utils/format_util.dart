@@ -25,20 +25,20 @@ class FormatUtil {
   static String formatDate(DateTime date, {BuildContext? context}) {
     // 使用时区服务转换时间
     final timezoneService = _getTimezoneService(context);
-    final localDate = timezoneService != null 
-        ? timezoneService.convertToLocalTime(date) 
+    final localDate = timezoneService != null
+        ? timezoneService.convertToLocalTime(date)
         : date.toLocal();
-    
+
     return DateFormat('yyyy-MM-dd').format(localDate);
   }
 
   /// 格式化日期时间，如 "2023-06-15 14:30:00"
   static String formatDateTime(DateTime dateTime, {BuildContext? context}) {
     final timezoneService = _getTimezoneService(context);
-    final localDateTime = timezoneService != null 
-        ? timezoneService.convertToLocalTime(dateTime) 
+    final localDateTime = timezoneService != null
+        ? timezoneService.convertToLocalTime(dateTime)
         : dateTime.toLocal();
-    
+
     return DateFormat('yyyy-MM-dd HH:mm:ss').format(localDateTime);
   }
 
@@ -93,6 +93,12 @@ class FormatUtil {
     } catch (e) {
       return null;
     }
+  }
+
+  /// 格式化当前月份为 "2023年04月" 格式
+  static String formatCurrentMonth() {
+    final now = DateTime.now();
+    return '${now.year}年${now.month.toString().padLeft(2, '0')}月';
   }
 
   /// 将金额字符串解析为double

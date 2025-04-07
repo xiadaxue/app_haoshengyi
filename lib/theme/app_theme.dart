@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:haoshengyi_jzzs_app/constants/app_constants.dart';
 
 /// 应用主题定义
 class AppTheme {
@@ -133,7 +134,7 @@ class AppTheme {
       end: Alignment.bottomRight,
     );
   }
-  
+
   // 添加交易类型颜色和图标定义
   static const Map<String, Color> transactionTypeColors = {
     'income': Colors.green, // 收入 - 绿色
@@ -142,7 +143,7 @@ class AppTheme {
     'return': Color(0xFF9C27B0), // 还款 - 紫色
     'settle': Color(0xFF795548), // 结算 - 棕色
   };
-  
+
   static const Map<String, IconData> transactionTypeIcons = {
     'income': Icons.arrow_downward,
     'expense': Icons.arrow_upward,
@@ -150,19 +151,36 @@ class AppTheme {
     'return': Icons.call_made,
     'settle': Icons.swap_horiz,
   };
-  
+
   // 获取交易类型颜色
   static Color getTransactionTypeColor(String type) {
     return transactionTypeColors[type] ?? Colors.grey;
   }
-  
+
   // 获取交易类型图标
   static IconData getTransactionTypeIcon(String type) {
     return transactionTypeIcons[type] ?? Icons.help_outline;
   }
-  
-  // 获取交易类型标签
-  static String getTransactionTypeLabel(String type) {
+
+// 获取交易类型标签
+  static String getTransactionTypeLabel(String type, String classType) {
+    if (classType == AppConstants.assetType) {
+      // 资产类型
+      if (type == AppConstants.incomeType) {
+        return '借出';
+      } else if (type == AppConstants.expenseType) {
+        return '归还';
+      }
+    } else if (classType == AppConstants.cashType) {
+      // 现金类型
+      if (type == AppConstants.incomeType) {
+        return '收款';
+      } else if (type == AppConstants.expenseType) {
+        return '付款';
+      }
+    }
+
+    // 默认类型标签
     const Map<String, String> typeLabels = {
       'all': '全部',
       'income': '收入',
@@ -171,6 +189,7 @@ class AppTheme {
       'return': '还款',
       'settle': '结算',
     };
+
     return typeLabels[type] ?? '未知类型';
   }
 }

@@ -148,4 +148,47 @@ class TransactionService {
       rethrow;
     }
   }
+
+  /// 获取特定日期范围内有交易的日期列表（仅用于日历展示）
+  Future<Map<String, dynamic>> getDatesWithTransactions({
+    required String startDate,
+    required String endDate,
+  }) async {
+    try {
+      // 调用现有接口，但只请求日期字段
+      final data = await _httpClient.get(
+        '${ApiConstants.transactions}/dates',
+        queryParameters: {
+          'startDate': startDate,
+          'endDate': endDate,
+        },
+      );
+
+      // 如果后端接口不支持，可以模拟一个实现
+      if (data['dates'] == null) {
+        // 获取原始交易数据
+        final transactions = await getTransactions(
+          startDate: startDate,
+          endDate: endDate,
+          fields: 'transactionDate', // 只获取日期字段，减少数据量
+        );
+
+        // 提取不重复的日期
+        final Set<String> uniqueDates = {};
+        for (var transaction in transactions['transactions']) {
+          final date = transaction.transactionDate.split('T')[0];
+          uniqueDates.add(date);
+        }
+
+        return {
+          'dates': uniqueDates.toList(),
+        };
+      }
+
+      return data;
+    } catch (e) {
+      print('获取日期列表失败: $e');
+      return {'dates': []};
+    }
+  }
 }

@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:haoshengyi_jzzs_app/constants/app_constants.dart';
 import 'package:haoshengyi_jzzs_app/models/transaction_model.dart';
 import 'package:haoshengyi_jzzs_app/providers/transaction_provider.dart';
-import 'package:haoshengyi_jzzs_app/screens/transactions/transaction_edit_screen.dart';
+import 'package:haoshengyi_jzzs_app/screens/transactions/transaction_form_screen.dart';
+import 'package:haoshengyi_jzzs_app/screens/transactions/widgets/settlement_status_widget.dart';
 import 'package:haoshengyi_jzzs_app/theme/app_theme.dart';
 import 'package:haoshengyi_jzzs_app/utils/format_util.dart';
 import 'package:haoshengyi_jzzs_app/utils/toast_util.dart';
@@ -66,14 +67,42 @@ class TransactionDetailScreen extends StatelessWidget {
     }
   }
 
-  // 删除原有的 _getTransactionTypeLabel 方法，使用 AppTheme 中的方法
-  // 修改 build 方法中的相关代码
-  
   @override
   Widget build(BuildContext context) {
-    // 使用 AppTheme 获取类型颜色
+    final isIncome = transaction.type == AppConstants.incomeType;
+    final isExpense = transaction.type == AppConstants.expenseType;
+    final isCash = transaction.classType == AppConstants.cashType;
+    final isAsset = transaction.classType == AppConstants.assetType;
+
+    // 使用 AppTheme 获取类型颜色和图标
     final typeColor = AppTheme.getTransactionTypeColor(transaction.type);
-  
+    final typeIcon = AppTheme.getTransactionTypeIcon(transaction.type);
+
+    // 获取交易类型标签
+    final typeLabel = AppTheme.getTransactionTypeLabel(
+      transaction.type,
+      transaction.classType,
+    );
+
+    // 日期格式化 - 确保使用本地时区
+    final transactionDate =
+        FormatUtil.parseDateTime(transaction.transactionDate)?.toLocal();
+    final formattedDate = transactionDate != null
+        ? FormatUtil.formatDate(transactionDate)
+        : '未知日期';
+
+    // 判断金额颜色
+    final amountColor = (isExpense)
+        ? Colors.red
+        : (isIncome || isAsset)
+            ? Colors.green
+            : Colors.grey;
+
+    // 显示金额或数量
+    final displayAmount = isCash
+        ? FormatUtil.formatCurrency(transaction.amount)
+        : _getContainerQuantity(transaction.containers);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('交易详情'),
@@ -110,9 +139,29 @@ class TransactionDetailScreen extends StatelessWidget {
                 children: [
                   // 交易类型 - 使用 AppTheme 中的方法获取标签
                   Text(
-                    AppTheme.getTransactionTypeLabel(transaction.type),
+                    AppTheme.getTransactionTypeLabel(
+                        transaction.type, transaction.classType),
                     style: TextStyle(
                       fontSize: 16.sp,
+                      color: Colors.white.withOpacity(0.9),
+                    ),
+                  ),
+                  SizedBox(height: 10.h),
+                  // 金额
+                  Text(
+                    displayAmount,
+                    style: TextStyle(
+                      fontSize: 30.sp,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  SizedBox(height: 10.h),
+                  // 日期
+                  Text(
+                    formattedDate,
+                    style: TextStyle(
+                      fontSize: 14.sp,
                       color: Colors.white.withOpacity(0.9),
                     ),
                   ),
@@ -123,80 +172,98 @@ class TransactionDetailScreen extends StatelessWidget {
             SizedBox(height: 20.h),
 
             // 详细信息卡片
-            Container(
-              padding: EdgeInsets.all(15.r),
-              decoration: BoxDecoration(
-                color: Colors.white,
+            Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(15.r),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(
-                        red: Colors.black.red.toDouble(),
-                        green: Colors.black.green.toDouble(),
-                        blue: Colors.black.blue.toDouble(),
-                        alpha: 0.05 * 255),
-                    blurRadius: 10,
-                    offset: const Offset(0, 5),
-                  ),
-                ],
+                side: BorderSide(color: Colors.grey.shade200),
               ),
-              child: Column(
-                children: [
-                  /// 替换描述字段
-                  _buildInfoItem('备注', transaction.remark ?? '无备注'),
+              child: Padding(
+                padding: EdgeInsets.all(15.r),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '交易详情',
+                      style: TextStyle(
+                        fontSize: 16.sp,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(height: 15.h),
 
-                  // 添加用户字段
-                  if (transaction.users != null &&
-                      transaction.users!.isNotEmpty)
-                    _buildInfoItem('用户', transaction.users!.join(', ')),
-
-                  // 添加产品字段
-                  if (transaction.products != null &&
-                      transaction.products!.isNotEmpty)
-                    _buildInfoItem(
-                      '产品',
-                      transaction.products!
-                          .map((product) =>
-                              '${product.name} (${product.quantity}${product.unit})')
-                          .join(', '),
+                    // 结算状态 - 使用我们创建的小部件，非内联样式
+                    SettlementStatusWidget(
+                      transaction: transaction,
+                      inlineStyle: false,
                     ),
 
-                  // 添加容器字段
-                  if (transaction.containers != null &&
-                      transaction.containers!.isNotEmpty)
+                    SizedBox(height: 10.h),
+                    Divider(),
+                    SizedBox(height: 10.h),
+
+                    // 备注
                     _buildInfoItem(
-                      '容器',
-                      transaction.containers!
-                          .map((container) =>
-                              '${container.name} (${container.quantity})')
-                          .join(', '),
-                    ),
+                        '备注',
+                        transaction.remark.isEmpty
+                            ? '无备注'
+                            : transaction.remark),
 
-                  // 分类
-                  _buildInfoItem('分类', transaction.category),
+                    // 记账人
+                    if (transaction.users != null &&
+                        transaction.users!.isNotEmpty)
+                      _buildInfoItem('交易人', transaction.users!.join(', ')),
 
-                  // 标签
-                  if (transaction.tags != null && transaction.tags!.isNotEmpty)
-                    _buildInfoItem('标签', transaction.tags!.join(', ')),
+                    // 交易类型
+                    _buildInfoItem('交易类型',
+                        '${transaction.classType == AppConstants.cashType ? '现金' : '资产'} - ${AppTheme.getTransactionTypeLabel(transaction.type, transaction.classType)}'),
 
-                  // 创建时间
-                  if (transaction.createdAt != null)
-                    _buildInfoItem(
-                        '创建时间',
-                        FormatUtil.formatDateTime(
-                          FormatUtil.parseDateTime(transaction.createdAt!) ??
-                              DateTime.now(),
-                        )),
+                    // 产品列表
+                    if (transaction.products != null &&
+                        transaction.products!.isNotEmpty)
+                      _buildInfoItem(
+                        '产品',
+                        transaction.products!
+                            .map((product) =>
+                                '${product.name} (${product.quantity} ${product.unit}，单价: ${FormatUtil.formatCurrency(product.unitPrice)})')
+                            .join('\n'),
+                      ),
 
-                  // 更新时间
-                  if (transaction.updatedAt != null)
-                    _buildInfoItem(
-                        '更新时间',
-                        FormatUtil.formatDateTime(
-                          FormatUtil.parseDateTime(transaction.updatedAt!) ??
-                              DateTime.now(),
-                        )),
-                ],
+                    // 容器列表
+                    if (transaction.containers != null &&
+                        transaction.containers!.isNotEmpty)
+                      _buildInfoItem(
+                        '容器',
+                        transaction.containers!
+                            .map((container) =>
+                                '${container.name} (${container.quantity})')
+                            .join(', '),
+                      ),
+
+                    // 标签
+                    if (transaction.tags != null &&
+                        transaction.tags!.isNotEmpty)
+                      _buildInfoItem('标签', transaction.tags!.join(', ')),
+
+                    // 创建时间
+                    if (transaction.createdAt != null)
+                      _buildInfoItem(
+                          '创建时间',
+                          FormatUtil.formatDateTime(
+                            FormatUtil.parseDateTime(transaction.createdAt!) ??
+                                DateTime.now(),
+                          )),
+
+                    // 更新时间
+                    if (transaction.updatedAt != null)
+                      _buildInfoItem(
+                          '更新时间',
+                          FormatUtil.formatDateTime(
+                            FormatUtil.parseDateTime(transaction.updatedAt!) ??
+                                DateTime.now(),
+                          )),
+                  ],
+                ),
               ),
             ),
 
@@ -211,8 +278,10 @@ class TransactionDetailScreen extends StatelessWidget {
                       final result = await Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) =>
-                              EditTransactionScreen(transaction: transaction),
+                          builder: (context) => TransactionFormScreen(
+                            transaction: transaction,
+                            isEdit: true,
+                          ),
                         ),
                       );
 
@@ -268,5 +337,20 @@ class TransactionDetailScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  // 获取容器的数量
+  String _getContainerQuantity(List<ContainerModel>? containers) {
+    if (containers == null || containers.isEmpty) {
+      return '0个'; // 如果没有容器，显示 0 个
+    }
+
+    // 累加所有容器的数量
+    int totalQuantity = containers.fold<int>(
+      0,
+      (sum, container) => sum + (int.tryParse(container.quantity) ?? 0),
+    );
+
+    return '$totalQuantity个'; // 返回总数量
   }
 }

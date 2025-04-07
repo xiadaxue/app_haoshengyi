@@ -69,10 +69,8 @@ class _VoiceInputWidgetState extends State<VoiceInputWidget> {
               _lastWords = text;
               _textController.text = text;
 
-              // 延迟处理识别结果，避免在后续回调中重复触发
-              Future.delayed(Duration(milliseconds: 500), () {
-                _processRecognizedText();
-              });
+              // 直接处理识别结果，不使用延迟以避免任何额外的确认提示
+              _processRecognizedText();
             } else {
               _lastWords = text;
             }
@@ -116,22 +114,30 @@ class _VoiceInputWidgetState extends State<VoiceInputWidget> {
     if (_isListening) return;
 
     try {
+      // 清空上次的输入内容
       setState(() {
         _lastWords = '';
         _errorMessage = '';
         _fullRecognizedText = '';
         _isListening = true;
+        _finalResult = ''; // 确保清空最终结果
+        _textController.clear(); // 清空文本输入框
       });
 
+      print('开始语音识别...');
       final success = await _voiceService.startRecording();
       if (!success) {
         setState(() {
           _isListening = false;
           _errorMessage = _voiceService.getErrorMessage();
         });
-        ToastUtil.showError(_errorMessage);
+        print('语音识别启动失败: $_errorMessage');
+        ToastUtil.showError(_errorMessage.isEmpty ? '启动语音识别失败' : _errorMessage);
+      } else {
+        print('语音识别已启动，等待用户说话...');
       }
     } catch (e) {
+      print('语音识别异常: $e');
       setState(() {
         _isListening = false;
         _errorMessage = e.toString();
@@ -144,9 +150,12 @@ class _VoiceInputWidgetState extends State<VoiceInputWidget> {
   Future<void> _stopListening({bool isCancelled = false}) async {
     if (!_isListening) return;
 
+    print('停止语音识别，取消=${isCancelled}');
     try {
       await _voiceService.stopRecording();
+      print('语音识别已停止');
     } catch (e) {
+      print('停止语音识别失败: $e');
       setState(() {
         _errorMessage = e.toString();
       });
@@ -156,11 +165,11 @@ class _VoiceInputWidgetState extends State<VoiceInputWidget> {
         _isListening = false;
         _isCancelling = false;
         if (isCancelled) {
+          print('用户取消了语音输入');
           _lastWords = '';
           _finalResult = '';
           _fullRecognizedText = '';
           _textController.clear();
-          // ToastUtil.showInfo('语音输入已取消');
         }
       });
     }
@@ -174,34 +183,11 @@ class _VoiceInputWidgetState extends State<VoiceInputWidget> {
     _isProcessingResult = true;
 
     try {
-      // 显示确认对话框
-      final bool? confirm = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('确认记账'),
-          content: Text('是否记录：$_finalResult'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('再想想'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('确定'),
-            ),
-          ],
-        ),
-      );
+      // 将识别结果设置到文本框
+      _textController.text = _finalResult;
 
-      if (confirm == true) {
-        await _processTextAccounting();
-      } else {
-        // 如果用户取消，清空输入框
-        setState(() {
-          _textController.clear();
-          _finalResult = '';
-        });
-      }
+      // 调用处理方法，传入context以显示确认对话框
+      await _processTextAccounting();
     } finally {
       // 确保处理完成后重置标志
       _isProcessingResult = false;
@@ -240,27 +226,48 @@ class _VoiceInputWidgetState extends State<VoiceInputWidget> {
     try {
       final accountingProvider =
           Provider.of<AccountingProvider>(context, listen: false);
+
+      // 显示确认对话框进行记账，确保始终传入context以显示确认对话框
       final success =
           await accountingProvider.processTextAccounting(text, context);
 
       if (success) {
         _textController.clear();
+        setState(() {
+          _lastWords = '';
+          _finalResult = '';
+          _fullRecognizedText = '';
+        });
+
+        print('语音记账成功，开始刷新数据');
+
+        // 确保记账成功后通知首页刷新数据
+        widget.onAccountingSuccess();
+
+        // 成功提示
         ToastUtil.showSuccess('记账成功');
 
-        // 刷新交易列表
-        final transactionProvider =
-            Provider.of<TransactionProvider>(context, listen: false);
-        transactionProvider.refreshTransactions();
+        // 短暂延迟后刷新页面，确保新数据显示出来
+        Future.delayed(Duration(milliseconds: 300), () {
+          // 确保上下文仍有效
+          if (mounted) {
+            final transactionProvider =
+                Provider.of<TransactionProvider>(context, listen: false);
+            // 强制刷新当前数据
+            transactionProvider.refreshCurrentData();
 
-        // 调用成功回调
-        widget.onAccountingSuccess();
-      } else {
-        // 如果返回 false，说明记账失败，但不提示错误
-        ToastUtil.showInfo('记账未完成');
+            // 额外延迟，再次确保UI更新
+            Future.delayed(Duration(milliseconds: 300), () {
+              if (mounted) {
+                transactionProvider.notifyListeners();
+              }
+            });
+          }
+        });
       }
     } catch (e) {
-      // 捕获真正的错误并提示
-      ToastUtil.showError('记账失败: $e');
+      print('记账失败：$e');
+      ToastUtil.showError('记账失败：$e');
     } finally {
       setState(() {
         _isLoading = false;
@@ -471,19 +478,6 @@ class _VoiceInputWidgetState extends State<VoiceInputWidget> {
               ],
             ),
           ),
-
-          // API密钥提示
-          if (!_isListening)
-            Padding(
-              padding: EdgeInsets.only(top: 5.h),
-              child: Text(
-                '如需更新讯飞API密钥，请前往 xfyun.cn 获取',
-                style: TextStyle(
-                  fontSize: 10.sp,
-                  color: Colors.grey,
-                ),
-              ),
-            ),
         ],
       ),
     );

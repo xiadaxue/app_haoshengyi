@@ -16,6 +16,12 @@ class TransactionModel {
   final String? updatedAt;
   final bool? isDeleted;
   final String? status; // 添加状态字段，可以是 'returned', 'pending' 等
+  final String classType; // 新增类型字段，'cash'表示现金类型，'asset'表示资产类型
+  final String? settlementStatus; // 新增字段，用于记录结算状态
+
+  // 添加结算状态的默认值常量
+  static const String unsettledStatus = 'unsettled';
+  static const String settledStatus = 'settled';
 
   TransactionModel({
     this.transactionId,
@@ -32,6 +38,8 @@ class TransactionModel {
     this.updatedAt,
     this.isDeleted = false,
     this.status,
+    this.classType = 'cash', // 默认为现金类型
+    this.settlementStatus = 'unsettled', // 默认为未结算
   });
 
   /// 从JSON映射转换为TransactionModel对象
@@ -39,25 +47,24 @@ class TransactionModel {
     return TransactionModel(
       transactionId: json['transactionId'],
       type: json['type'],
-      amount:
-          (json['amount'] is int)
-              ? (json['amount'] as int).toDouble()
-              : (json['amount'] ?? 0.0),
+      amount: (json['amount'] is int)
+          ? (json['amount'] as int).toDouble()
+          : (json['amount'] ?? 0.0),
       transactionDate: json['transaction_date'],
       remark: json['remark'],
       users: List<String>.from(json['users']),
-      products:
-          (json['products'] as List)
-              .map((e) => ProductsModel.fromJson(e))
-              .toList(),
-      containers:
-          (json['containers'] as List)
-              .map((e) => ContainerModel.fromJson(e))
-              .toList(),
+      products: (json['products'] as List)
+          .map((e) => ProductsModel.fromJson(e))
+          .toList(),
+      containers: (json['containers'] as List)
+          .map((e) => ContainerModel.fromJson(e))
+          .toList(),
       category: json['category'],
       tags: List<String>.from(json['tags']),
       createdAt: json['createdAt'],
       updatedAt: json['updatedAt'],
+      classType: json['class_type'] ?? 'cash', // 从JSON中读取classType，默认为'cash'
+      settlementStatus: json['settlement_status'],
     );
   }
 
@@ -68,7 +75,9 @@ class TransactionModel {
       'amount': amount,
       'category': category,
       'remark': remark,
-      'transaction_date': transactionDate,
+      'transaction_date': transactionDate, // 确保使用服务器期望的字段名
+      'class_type': classType,
+      'settlement_status': settlementStatus,
     };
 
     if (transactionId != null) {
@@ -102,6 +111,12 @@ class TransactionModel {
     if (isDeleted != null) {
       data['isDeleted'] = isDeleted;
     }
+    if (classType != null) {
+      data['class_type'] = classType;
+    }
+    if (settlementStatus != null) {
+      data['settlement_status'] = settlementStatus;
+    }
 
     return data;
   }
@@ -121,6 +136,8 @@ class TransactionModel {
     String? createdAt,
     String? updatedAt,
     bool? isDeleted,
+    String? classType,
+    String? settlementStatus,
   }) {
     return TransactionModel(
       transactionId: transactionId ?? this.transactionId,
@@ -136,6 +153,8 @@ class TransactionModel {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       isDeleted: isDeleted ?? this.isDeleted,
+      classType: classType ?? this.classType,
+      settlementStatus: settlementStatus ?? this.settlementStatus,
     );
   }
 }
@@ -159,10 +178,9 @@ class ProductsModel {
       name: json['name'] ?? '',
       quantity: json['quantity'] ?? 0,
       unit: json['unit'] ?? '',
-      unitPrice:
-          json['unit_price'] is int
-              ? (json['unit_price'] as int).toDouble()
-              : (json['unit_price'] ?? 0.0),
+      unitPrice: json['unit_price'] is int
+          ? (json['unit_price'] as int).toDouble()
+          : (json['unit_price'] ?? 0.0),
     );
   }
 

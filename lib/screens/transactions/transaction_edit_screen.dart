@@ -24,7 +24,8 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
   late String _category;
   late String _remark;
   late double _amount;
-  late String _type; // 添加交易类型变量
+  late String _type; // 交易类型
+  late String _classType; // 交易分类类型 (cash/asset)
 
   @override
   void initState() {
@@ -32,18 +33,33 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
     _category = widget.transaction.category;
     _remark = widget.transaction.remark ?? '';
     _amount = widget.transaction.amount;
-    _type = widget.transaction.type; // 初始化交易类型
+    _type = widget.transaction.type;
+    _classType = widget.transaction.classType;
   }
 
-  // 获取可用的交易类型列表
-  List<Map<String, dynamic>> get _transactionTypes {
+  // 获取可用的交易分类类型列表
+  List<Map<String, dynamic>> get _transactionClassTypes {
     return [
-      {'value': AppConstants.incomeType, 'label': '收入'},
-      {'value': AppConstants.expenseType, 'label': '支出'},
-      {'value': 'borrow', 'label': '借入'},
-      {'value': 'return', 'label': '还款'},
-      {'value': 'settle', 'label': '结算'},
+      {'value': AppConstants.cashType, 'label': '资金'},
+      {'value': AppConstants.assetType, 'label': '资产'},
     ];
+  }
+
+  // 获取可用的交易类型列表，根据选择的分类类型进行过滤
+  List<Map<String, dynamic>> get _transactionTypes {
+    if (_classType == AppConstants.cashType) {
+      // 现金类型只显示收入与支出
+      return [
+        {'value': AppConstants.incomeType, 'label': '收款'},
+        {'value': AppConstants.expenseType, 'label': '付款'},
+      ];
+    } else {
+      // 资产类型显示所有交易类型
+      return [
+        {'value': AppConstants.incomeType, 'label': '借出'},
+        {'value': AppConstants.expenseType, 'label': '归还'},
+      ];
+    }
   }
 
   Future<void> _saveTransaction() async {
@@ -59,7 +75,8 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
         category: _category,
         remark: _remark,
         amount: _amount,
-        type: _type, // 添加类型更新
+        type: _type,
+        classType: _classType,
       );
 
       final success = await transactionProvider.updateTransaction(
@@ -75,7 +92,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
       ToastUtil.showError('更新失败：$e');
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -91,6 +108,55 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 交易资产类型选择器
+                Text(
+                  '资金/资产',
+                  style: TextStyle(
+                    fontSize: 14.sp,
+                    color: Colors.grey[700],
+                  ),
+                ),
+                SizedBox(height: 8.h),
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8.r),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _classType,
+                      isExpanded: true,
+                      padding: EdgeInsets.symmetric(horizontal: 12.w),
+                      borderRadius: BorderRadius.circular(8.r),
+                      items: _transactionClassTypes.map((type) {
+                        return DropdownMenuItem<String>(
+                          value: type['value'],
+                          child: Text(
+                            type['label'],
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() {
+                            _classType = value;
+                            // 如果切换到现金类型，且当前类型不是收入或支出，则重置为支出
+                            if (value == AppConstants.cashType &&
+                                _type != AppConstants.incomeType &&
+                                _type != AppConstants.expenseType) {
+                              _type = AppConstants.expenseType;
+                            }
+                          });
+                        }
+                      },
+                    ),
+                  ),
+                ),
+                SizedBox(height: 15.h),
+
                 // 交易类型选择器
                 Text(
                   '交易类型',
@@ -112,7 +178,8 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                       padding: EdgeInsets.symmetric(horizontal: 12.w),
                       borderRadius: BorderRadius.circular(8.r),
                       items: _transactionTypes.map((type) {
-                        final typeColor = AppTheme.getTransactionTypeColor(type['value']);
+                        final typeColor =
+                            AppTheme.getTransactionTypeColor(type['value']);
                         return DropdownMenuItem<String>(
                           value: type['value'],
                           child: Row(
@@ -145,25 +212,6 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                   ),
                 ),
                 SizedBox(height: 15.h),
-                
-                // 分类
-                TextFormField(
-                  initialValue: _category,
-                  decoration: InputDecoration(
-                    labelText: '分类',
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return '分类不能为空';
-                    }
-                    return null;
-                  },
-                  onSaved: (value) {
-                    _category = value!;
-                  },
-                ),
-                SizedBox(height: 15.h),
 
                 // 备注
                 TextFormField(
@@ -182,16 +230,21 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                 TextFormField(
                   initialValue: _amount.toString(),
                   decoration: InputDecoration(
-                    labelText: '金额',
+                    labelText:
+                        _classType == AppConstants.assetType ? '数量' : '金额',
                     border: OutlineInputBorder(),
                   ),
                   keyboardType: TextInputType.number,
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return '金额不能为空';
+                      return _classType == AppConstants.assetType
+                          ? '数量不能为空'
+                          : '金额不能为空';
                     }
                     if (double.tryParse(value) == null) {
-                      return '请输入有效的金额';
+                      return _classType == AppConstants.assetType
+                          ? '请输入有效的数量'
+                          : '请输入有效的金额';
                     }
                     return null;
                   },

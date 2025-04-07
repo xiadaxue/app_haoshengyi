@@ -17,7 +17,7 @@ class AppConfig {
   factory AppConfig.dev() {
     return AppConfig(
       environment: Environment.dev,
-      apiBaseUrl: 'http://192.168.88.103:8080',
+      apiBaseUrl: 'http://192.168.1.15:8080',
       enableLogging: true,
       appName: '好生意记账本(开发版)',
     );
@@ -29,7 +29,7 @@ class AppConfig {
       environment: Environment.staging,
       apiBaseUrl: 'https://api.qianjin.xin/haoshengyi',
       enableLogging: true,
-      appName: '好生意记账本(测试版)',
+      appName: '好生意记账本(bate)',
     );
   }
 
@@ -57,7 +57,8 @@ class AppConfig {
         _instance = AppConfig.prod();
         break;
     }
-    print('当前环境: ${AppConfig.instance.environment}');
+    print('当前环境: ${AppConfig.instance.appName}');
+    print('API Base URL: ${AppConfig.instance.apiBaseUrl}');
   }
 
   static AppConfig get instance => _instance;

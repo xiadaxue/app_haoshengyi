@@ -34,6 +34,12 @@ class _StatsPageState extends State<StatsPage>
   // 统计视图类型：图表/列表
   String _viewType = 'chart'; // chart, list
 
+  // 搜索相关
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  List<TransactionModel> _filteredTransactions = [];
+  bool _showSearchResults = false;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -44,7 +50,36 @@ class _StatsPageState extends State<StatsPage>
     ToastUtil.debug("统计页面初始化");
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ToastUtil.debug("统计页面准备加载数据");
+      _generateLocalMonths();
       _loadMonths();
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  // 生成本地月份列表
+  void _generateLocalMonths() {
+    final now = DateTime.now();
+    final List<String> localMonths = [];
+
+    // 从2025-01开始生成月份
+    DateTime startDate = DateTime(2025, 1, 1);
+
+    // 生成到当前月份的列表
+    while (startDate.year <= now.year &&
+        (startDate.year != now.year || startDate.month <= now.month)) {
+      localMonths.add(
+          '${startDate.year}年${startDate.month.toString().padLeft(2, '0')}月');
+      startDate = DateTime(startDate.year, startDate.month + 1, 1);
+    }
+
+    setState(() {
+      _months = localMonths;
+      _selectedMonth = '${now.year}年${now.month.toString().padLeft(2, '0')}月';
     });
   }
 
@@ -62,51 +97,53 @@ class _StatsPageState extends State<StatsPage>
     try {
       // 获取当前月份作为默认值
       final now = DateTime.now().toLocal();
-      final currentMonth = '${now.year}年${now.month.toString().padLeft(2, '0')}月';
-      
+      final currentMonth =
+          '${now.year}年${now.month.toString().padLeft(2, '0')}月';
+
       ToastUtil.debug("当前月份: $currentMonth");
-      
+
       final transactionProvider = context.read<TransactionProvider>();
       ToastUtil.debug("开始获取可用月份");
-      final months = await transactionProvider.getAvailableMonths();
-  
-      ToastUtil.debug("获取到月份列表: $months");
-      
-      // 如果没有月份数据，则使用当前月份
-      if (months.isEmpty) {
-        ToastUtil.debug("没有月份数据，使用当前月份");
-        
+      final apiMonths = await transactionProvider.getAvailableMonths();
+
+      ToastUtil.debug("获取到月份列表: $apiMonths");
+
+      // 合并本地生成的月份和API返回的月份，去重
+      if (apiMonths.isNotEmpty) {
         setState(() {
-          _months = [currentMonth];
-          _selectedMonth = currentMonth;
+          final Set<String> uniqueMonths = Set<String>.from(_months)
+            ..addAll(apiMonths);
+          _months = uniqueMonths.toList()..sort();
         });
-        
-        // 尝试加载当前月份的数据
-        await _loadTransactionsForMonth(currentMonth);
-      } else {
-        setState(() {
-          _months = months;
-          _selectedMonth = months.last;
-        });
-        
-        ToastUtil.debug("选择月份: $_selectedMonth");
-        // 加载选中月份的数据
-        await _loadTransactionsForMonth(_selectedMonth!);
       }
+
+      // 如果当前选中的月份不在列表中，使用列表中最新的月份
+      setState(() {
+        if (!_months.contains(_selectedMonth)) {
+          _selectedMonth = _months.isNotEmpty ? _months.last : currentMonth;
+        }
+      });
+
+      // 加载选中月份的数据
+      await _loadTransactionsForMonth(_selectedMonth!);
     } catch (e) {
       ToastUtil.debug("加载月份列表失败: $e");
-      
+
       // 出错时使用当前月份
       final now = DateTime.now().toLocal();
-      final currentMonth = '${now.year}年${now.month.toString().padLeft(2, '0')}月';
-      
+      final currentMonth =
+          '${now.year}年${now.month.toString().padLeft(2, '0')}月';
+
       ToastUtil.debug("使用默认月份: $currentMonth");
-      
+
       setState(() {
-        _months = [currentMonth];
+        if (!_months.contains(currentMonth)) {
+          _months.add(currentMonth);
+          _months.sort();
+        }
         _selectedMonth = currentMonth;
       });
-      
+
       // 尝试加载当前月份的数据
       try {
         await _loadTransactionsForMonth(currentMonth);
@@ -156,12 +193,8 @@ class _StatsPageState extends State<StatsPage>
 
       print('加载月份数据: $month, 日期范围: $startDateStr 至 $endDateStr');
 
-      // 获取交易数据
-      await transactionProvider.getTransactions(
-        startDate: startDateStr,
-        endDate: endDateStr,
-        refresh: true,
-      );
+      // 加载指定月份的交易数据
+      await transactionProvider.getTransactionsByMonth(month);
 
       // 更新本地数据
       setState(() {
@@ -219,172 +252,305 @@ class _StatsPageState extends State<StatsPage>
 
     // 按分类统计金额
     for (var transaction in filteredTransactions) {
-      final category = transaction.category;
+      // 获取显示名称
+      String displayName = '';
+      if (transaction.users != null && transaction.users!.isNotEmpty) {
+        // 如果有用户信息，显示第一个用户
+        displayName = transaction.users!.first;
+      } else {
+        // 如果没有用户信息，显示类别
+        displayName = transaction.category;
+      }
+
       final amount = transaction.amount;
 
-      _categoryStats[category] = (_categoryStats[category] ?? 0) + amount;
+      _categoryStats[displayName] = (_categoryStats[displayName] ?? 0) + amount;
     }
 
     print('计算完成的分类统计: $_categoryStats');
   }
 
+  // 新增：搜索备注
+  void _searchRemarks(String query) {
+    if (query.isEmpty) {
+      setState(() {
+        _searchQuery = '';
+        _showSearchResults = false;
+        _filteredTransactions = [];
+      });
+      return;
+    }
+
+    setState(() {
+      _searchQuery = query;
+      _showSearchResults = true;
+      _filteredTransactions = _transactions.where((transaction) {
+        return transaction.remark.toLowerCase().contains(query.toLowerCase());
+      }).toList();
+    });
+  }
+
   // 修改 build 方法
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('统计分析'),
+        actions: [
+          // 搜索按钮
+          IconButton(
+            icon: Icon(_showSearchResults ? Icons.close : Icons.search),
+            onPressed: () {
+              setState(() {
+                _showSearchResults = !_showSearchResults;
+                if (!_showSearchResults) {
+                  _searchController.clear();
+                  _searchQuery = '';
+                  _filteredTransactions = [];
+                }
+              });
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
-          // 月份选择器
-          Padding(
-            padding: EdgeInsets.all(15.r),
-            child: DropdownButtonFormField<String>(
-              value: _selectedMonth,
-              decoration: InputDecoration(
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 10.r, vertical: 5.r),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10.r),
-                  borderSide: BorderSide(color: Colors.grey.shade300),
+          // 搜索栏
+          if (_showSearchResults)
+            Padding(
+              padding: EdgeInsets.only(top: 8.r, left: 15.r, right: 15.r),
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: '搜索备注...',
+                  prefixIcon: Icon(Icons.search, size: 18.sp),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: Icon(Icons.clear, size: 18.sp),
+                          onPressed: () {
+                            _searchController.clear();
+                            _searchRemarks('');
+                          },
+                        )
+                      : null,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8.r),
+                  ),
+                  contentPadding: EdgeInsets.symmetric(vertical: 0.r),
+                  isDense: true,
                 ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10.r),
-                  borderSide: BorderSide(color: Colors.grey.shade300),
-                ),
-                isDense: true,
+                onChanged: _searchRemarks,
+                textInputAction: TextInputAction.search,
               ),
-              items: _months
-                  .map((month) => DropdownMenuItem(
-                        value: month,
-                        child: Text(month),
-                      ))
-                  .toList(),
-              onChanged: (value) {
-                setState(() {
-                  _selectedMonth = value;
-                });
-                // 切换月份后重新加载数据
-                if (value != null) {
-                  _loadTransactionsForMonth(value);
-                }
-              },
             ),
-          ),
-          SizedBox(height: 10.h),
 
-          // 统计类型选择和视图类型切换
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 15.r, vertical: 10.r),
-            child: Row(
-              children: [
-                // 收入/支出切换
-                Expanded(
-                  child: Container(
+          if (!_showSearchResults) ...[
+            // 月份选择器
+            _buildMonthSelector(),
+            SizedBox(height: 10.h),
+
+            // 统计类型选择和视图类型切换
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 15.r, vertical: 10.r),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      height: 40.h,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(8.r),
+                      ),
+                      child: Row(
+                        children: [
+                          _buildTypeTab(AppConstants.incomeType, '收入'),
+                          _buildTypeTab(AppConstants.expenseType, '支出'),
+                        ],
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 15.w),
+                  // 视图类型切换
+                  Container(
                     height: 40.h,
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
+                      color: Colors.grey.shade200,
                       borderRadius: BorderRadius.circular(8.r),
                     ),
                     child: Row(
                       children: [
-                        _buildTypeTab(AppConstants.incomeType, '收入'),
-                        _buildTypeTab(AppConstants.expenseType, '支出'),
+                        _buildViewTab('chart', Icons.pie_chart),
+                        _buildViewTab('list', Icons.view_list),
                       ],
                     ),
                   ),
-                ),
+                ],
+              ),
+            ),
+          ],
 
-                SizedBox(width: 15.w),
+          // 数据内容
+          Expanded(
+            child: _isLoading
+                ? Center(child: CircularProgressIndicator())
+                : _showSearchResults
+                    ? _buildSearchResults()
+                    : _transactions.isEmpty
+                        ? _buildEmptyView()
+                        : _categoryStats.isEmpty
+                            ? Center(
+                                child: Text(
+                                  '当前月份没有${_statsType == AppConstants.incomeType ? '收入' : '支出'}数据',
+                                  style: TextStyle(
+                                    fontSize: 16.sp,
+                                    color: AppTheme.textSecondaryColor,
+                                  ),
+                                ),
+                              )
+                            : _viewType == 'chart'
+                                ? _buildChartView(_categoryStats, _transactions)
+                                : _buildListView(_categoryStats, _transactions),
+          ),
+        ],
+      ),
+    );
+  }
 
-                // 图表/列表切换
-                Container(
-                  height: 40.h,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(8.r),
+  // 新增：构建搜索结果视图
+  Widget _buildSearchResults() {
+    if (_filteredTransactions.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.search_off,
+              size: 60.sp,
+              color: Colors.grey.shade300,
+            ),
+            SizedBox(height: 15.h),
+            Text(
+              '未找到包含"$_searchQuery"的备注',
+              style: TextStyle(
+                fontSize: 16.sp,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: EdgeInsets.all(15.r),
+      itemCount: _filteredTransactions.length,
+      itemBuilder: (context, index) {
+        final transaction = _filteredTransactions[index];
+        return _buildTransactionItem(transaction);
+      },
+    );
+  }
+
+  // 新增：构建交易项卡片
+  Widget _buildTransactionItem(TransactionModel transaction) {
+    final isIncome = transaction.type == AppConstants.incomeType;
+    final isExpense = transaction.type == AppConstants.expenseType;
+
+    final typeColor = isIncome ? AppTheme.incomeColor : AppTheme.expenseColor;
+    final typeText = isIncome ? '收入' : '支出';
+
+    // 获取显示名称
+    String displayName = '';
+    if (transaction.users != null && transaction.users!.isNotEmpty) {
+      // 如果有用户信息，显示第一个用户
+      displayName = transaction.users!.first;
+    } else {
+      // 如果没有用户信息，显示类别
+      displayName = transaction.category;
+    }
+
+    return Card(
+      margin: EdgeInsets.only(bottom: 10.r),
+      elevation: 0.5,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8.r),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(12.r),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  displayName,
+                  style: TextStyle(
+                    fontSize: 16.sp,
+                    fontWeight: FontWeight.bold,
                   ),
-                  child: Row(
-                    children: [
-                      _buildViewTab('chart', Icons.pie_chart),
-                      _buildViewTab('list', Icons.list),
-                    ],
+                ),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 2.r),
+                  decoration: BoxDecoration(
+                    color: typeColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4.r),
+                  ),
+                  child: Text(
+                    typeText,
+                    style: TextStyle(
+                      fontSize: 12.sp,
+                      color: typeColor,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
             ),
-          ),
-
-          // 修改：主内容区域
-          Expanded(
-            child: _isLoading
-                ? Center(child: CircularProgressIndicator())
-                : _transactions.isEmpty
-                    ? _buildEmptyView()
-                    : _statsType == AppConstants.incomeType &&
-                            !_transactions
-                                .any((t) => t.type == AppConstants.incomeType)
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.bar_chart,
-                                  size: 60.sp,
-                                  color: Colors.grey.shade300,
-                                ),
-                                SizedBox(height: 20.h),
-                                Text(
-                                  '暂无收入数据',
-                                  style: TextStyle(
-                                    fontSize: 18.sp,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        : _statsType == AppConstants.expenseType &&
-                                !_transactions.any(
-                                    (t) => t.type == AppConstants.expenseType)
-                            ? Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.bar_chart,
-                                      size: 60.sp,
-                                      color: Colors.grey.shade300,
-                                    ),
-                                    SizedBox(height: 20.h),
-                                    Text(
-                                      '暂无支出数据',
-                                      style: TextStyle(
-                                        fontSize: 18.sp,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : _categoryStats.isEmpty
-                                ? Center(
-                                    child: Text(
-                                      '当前月份没有${_statsType == AppConstants.incomeType ? '收入' : '支出'}数据',
-                                      style: TextStyle(
-                                        fontSize: 16.sp,
-                                        color: AppTheme.textSecondaryColor,
-                                      ),
-                                    ),
-                                  )
-                                : _viewType == 'chart'
-                                    ? _buildChartView(
-                                        _categoryStats, _transactions)
-                                    : _buildListView(
-                                        _categoryStats, _transactions),
-          ),
-        ],
+            SizedBox(height: 8.h),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    transaction.remark.isEmpty ? '无备注' : transaction.remark,
+                    style: TextStyle(
+                      fontSize: 14.sp,
+                      color: Colors.grey[600],
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                SizedBox(width: 8.w),
+                Text(
+                  FormatUtil.formatCurrency(transaction.amount),
+                  style: TextStyle(
+                    fontSize: 16.sp,
+                    fontWeight: FontWeight.bold,
+                    color: typeColor,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 5.h),
+            Text(
+              FormatUtil.formatDateTimeWithFormat(
+                FormatUtil.parseDateTime(transaction.transactionDate)
+                        ?.toLocal() ??
+                    DateTime.now(),
+                format: 'yyyy-MM-dd HH:mm',
+              ),
+              style: TextStyle(
+                fontSize: 12.sp,
+                color: Colors.grey,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -834,8 +1000,6 @@ class _StatsPageState extends State<StatsPage>
     );
   }
 
-  // 构建图例
-
   // 构建空数据视图
   Widget _buildEmptyView() {
     return Center(
@@ -865,6 +1029,57 @@ class _StatsPageState extends State<StatsPage>
           ),
         ],
       ),
+    );
+  }
+
+  // 修改 build 方法中的月份选择器部分
+  Widget _buildMonthSelector() {
+    return Consumer<TransactionProvider>(
+      builder: (context, provider, _) {
+        return Padding(
+          padding: EdgeInsets.all(15.r),
+          child: DropdownButtonFormField<String>(
+            value: _selectedMonth,
+            decoration: InputDecoration(
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 10.r, vertical: 5.r),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10.r),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10.r),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              isDense: true,
+            ),
+            items: _months.map((month) {
+              // 判断是否有数据
+              final hasData = provider.hasDataForMonth(month);
+              return DropdownMenuItem(
+                value: month,
+                child: Text(
+                  month,
+                  style: TextStyle(
+                    fontSize: 14.sp,
+                    color: hasData ? Colors.black : Colors.grey,
+                    fontWeight: hasData ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+              );
+            }).toList(),
+            onChanged: (value) {
+              setState(() {
+                _selectedMonth = value;
+              });
+              // 切换月份后重新加载数据
+              if (value != null) {
+                _loadTransactionsForMonth(value);
+              }
+            },
+          ),
+        );
+      },
     );
   }
 }

@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:haoshengyi_jzzs_app/api/accounting_service.dart';
 import 'package:haoshengyi_jzzs_app/api/transaction_service.dart';
 import 'package:haoshengyi_jzzs_app/models/transaction_model.dart';
-import 'package:haoshengyi_jzzs_app/models/voice_recognition_model.dart';
+import 'package:haoshengyi_jzzs_app/models/voice_recognition_model.dart'
+    hide Container;
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -149,6 +150,13 @@ class AccountingProvider extends ChangeNotifier {
     }
   }
 
+  // 语音/文本记账处理完成后清空数据
+  void clearAfterProcessing() {
+    _recognizedText = '';
+    _recognitionResult = null;
+    notifyListeners();
+  }
+
   Future<bool> processTextAccounting(
     String text, [
     BuildContext? context,
@@ -161,11 +169,21 @@ class AccountingProvider extends ChangeNotifier {
       _recognitionResult = await _accountingService.textRecognition(text);
       if (_recognitionResult == null) return false;
 
-      if (context != null && !await _showConfirmationDialog(context)) {
-        return false;
+      // 如果提供了context，则显示确认对话框
+      if (context != null) {
+        if (!await _showConfirmationDialog(context)) {
+          clearAfterProcessing();
+          return false;
+        }
+      } else {
+        // 没有context，则跳过确认对话框（语音识别直接处理）
+        print('语音识别：直接处理记账，跳过确认对话框');
       }
 
       await _sendTransactionToServer();
+
+      // 成功处理后清空所有识别数据
+      clearAfterProcessing();
       return true;
     } catch (e) {
       print('处理文本记账失败: $e');
@@ -175,12 +193,15 @@ class AccountingProvider extends ChangeNotifier {
     }
   }
 
+  /// 创建或更新交易记录对象（确保包含结算状态）
   Future<void> _sendTransactionToServer() async {
     final transactionService = TransactionService();
     final parsedData = _recognitionResult?.parsedData;
     if (parsedData == null) {
       throw '解析数据为空，无法创建交易';
     }
+
+    print('开始创建交易记录：${parsedData.type} ${parsedData.amount}元');
 
     // 添加到列表第一位
     final newTransaction = TransactionModel(
@@ -199,48 +220,605 @@ class AccountingProvider extends ChangeNotifier {
         parsedData.containers.map((c) => ContainerModel.fromJson(c.toJson())),
       ),
       createdAt: DateTime.now().toIso8601String(),
+      classType: parsedData.classType ?? 'cash', // 确保传递交易属性
+      settlementStatus: parsedData.settlementStatus ??
+          TransactionModel.unsettledStatus, // 确保传递结算状态，使用常量
     );
 
-    await transactionService.createTransaction(newTransaction);
+    final transactionId =
+        await transactionService.createTransaction(newTransaction);
+    print('交易记录创建成功，ID: $transactionId');
   }
 
   Future<bool> _showConfirmationDialog(BuildContext context) async {
     if (_recognitionResult == null) return false;
 
-    final parsedData = _recognitionResult!.parsedData;
+    ParsedData parsedData = _recognitionResult!.parsedData;
+
+    // 创建可编辑副本
+    String editType = parsedData.type;
+    double editAmount = parsedData.amount;
+    String editClassType = parsedData.classType ?? 'cash';
+    String editSettlementStatus = parsedData.settlementStatus ?? 'unsettled';
+    String editRemark = parsedData.remark ?? '';
+
+    // 创建产品列表的可编辑副本
+    List<Map<String, dynamic>> editProducts = parsedData.products
+        .map((product) => {
+              'name': product.name,
+              'quantity': product.quantity,
+              'unit': product.unit,
+              'unitPrice': product.unitPrice,
+            })
+        .toList();
+
     return await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: Text('确认记账'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+            title: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text('您确定要记录以下交易吗？'),
-                SizedBox(height: 10),
-                Text('类型: ${parsedData.type == 'income' ? '收入' : '支出'}'),
-                Text('金额: ${parsedData.amount.toStringAsFixed(2)}元'),
-                if (parsedData.products.isNotEmpty) ...[
-                  Text(
-                      '商品: ${parsedData.products.map((e) => e.name).join(', ')}'),
-                  Text(
-                      '单价: ${parsedData.products.map((e) => e.unitPrice).join(', ')}元'),
-                  Text(
-                      '数量: ${parsedData.products.map((e) => e.quantity).join(', ')}'),
-                ],
-                if (parsedData.remark != null) Text('备注: ${parsedData.remark}'),
+                Icon(Icons.receipt_long, color: Colors.green, size: 24),
+                SizedBox(width: 8),
+                const Text('确认记账',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
               ],
+            ),
+            content: StatefulBuilder(
+              builder: (context, setState) {
+                return Container(
+                  constraints: BoxConstraints(maxHeight: 450), // 限制最大高度
+                  width: MediaQuery.of(context).size.width * 0.85, // 设置宽度
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 交易类型选择 - 使用分段控件风格
+                        Container(
+                          margin: EdgeInsets.only(bottom: 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '交易类型',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[200],
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          setState(() {
+                                            editType = 'income';
+                                          });
+                                        },
+                                        child: Container(
+                                          padding: EdgeInsets.symmetric(
+                                              vertical: 10),
+                                          decoration: BoxDecoration(
+                                            color: editType == 'income'
+                                                ? Colors.green
+                                                : Colors.transparent,
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              '收入',
+                                              style: TextStyle(
+                                                color: editType == 'income'
+                                                    ? Colors.white
+                                                    : Colors.black87,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          setState(() {
+                                            editType = 'expense';
+                                          });
+                                        },
+                                        child: Container(
+                                          padding: EdgeInsets.symmetric(
+                                              vertical: 10),
+                                          decoration: BoxDecoration(
+                                            color: editType == 'expense'
+                                                ? Colors.red
+                                                : Colors.transparent,
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              '支出',
+                                              style: TextStyle(
+                                                color: editType == 'expense'
+                                                    ? Colors.white
+                                                    : Colors.black87,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // 资金/资产类型选择
+                        Container(
+                          margin: EdgeInsets.only(bottom: 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '交易属性',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[200],
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          setState(() {
+                                            editClassType = 'cash';
+                                          });
+                                        },
+                                        child: Container(
+                                          padding: EdgeInsets.symmetric(
+                                              vertical: 10),
+                                          decoration: BoxDecoration(
+                                            color: editClassType == 'cash'
+                                                ? Colors.blue
+                                                : Colors.transparent,
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              '现金',
+                                              style: TextStyle(
+                                                color: editClassType == 'cash'
+                                                    ? Colors.white
+                                                    : Colors.black87,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          setState(() {
+                                            editClassType = 'asset';
+                                          });
+                                        },
+                                        child: Container(
+                                          padding: EdgeInsets.symmetric(
+                                              vertical: 10),
+                                          decoration: BoxDecoration(
+                                            color: editClassType == 'asset'
+                                                ? Colors.purple
+                                                : Colors.transparent,
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              '资产',
+                                              style: TextStyle(
+                                                color: editClassType == 'asset'
+                                                    ? Colors.white
+                                                    : Colors.black87,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // 金额输入
+                        Container(
+                          margin: EdgeInsets.only(bottom: 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '金额',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              TextField(
+                                decoration: InputDecoration(
+                                  filled: true,
+                                  fillColor: Colors.grey[100],
+                                  prefixIcon: Icon(
+                                    Icons.attach_money,
+                                    color: editType == 'income'
+                                        ? Colors.green
+                                        : Colors.red,
+                                  ),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                  contentPadding: EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
+                                ),
+                                keyboardType: TextInputType.numberWithOptions(
+                                    decimal: true),
+                                controller: TextEditingController(
+                                    text: editAmount.toString()),
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: editType == 'income'
+                                      ? Colors.green
+                                      : Colors.red,
+                                ),
+                                onChanged: (value) {
+                                  editAmount =
+                                      double.tryParse(value) ?? editAmount;
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // 结算状态选择
+                        Container(
+                          margin: EdgeInsets.only(bottom: 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '结算状态',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[200],
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          setState(() {
+                                            editSettlementStatus = 'unsettled';
+                                          });
+                                        },
+                                        child: Container(
+                                          padding: EdgeInsets.symmetric(
+                                              vertical: 10),
+                                          decoration: BoxDecoration(
+                                            color: editSettlementStatus ==
+                                                    'unsettled'
+                                                ? Colors.orange
+                                                : Colors.transparent,
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              '未结算',
+                                              style: TextStyle(
+                                                color: editSettlementStatus ==
+                                                        'unsettled'
+                                                    ? Colors.white
+                                                    : Colors.black87,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          setState(() {
+                                            editSettlementStatus = 'settled';
+                                          });
+                                        },
+                                        child: Container(
+                                          padding: EdgeInsets.symmetric(
+                                              vertical: 10),
+                                          decoration: BoxDecoration(
+                                            color: editSettlementStatus ==
+                                                    'settled'
+                                                ? Colors.green
+                                                : Colors.transparent,
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              '已结算',
+                                              style: TextStyle(
+                                                color: editSettlementStatus ==
+                                                        'settled'
+                                                    ? Colors.white
+                                                    : Colors.black87,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // 商品信息
+                        if (parsedData.products.isNotEmpty) ...[
+                          Container(
+                            margin: EdgeInsets.only(bottom: 16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '商品信息',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[700],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                ...editProducts.asMap().entries.map((entry) {
+                                  int index = entry.key;
+                                  Map<String, dynamic> product = entry.value;
+                                  return Container(
+                                    margin: EdgeInsets.only(bottom: 10),
+                                    padding: EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[100],
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '${product['name']}',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                        SizedBox(height: 8),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: TextField(
+                                                decoration: InputDecoration(
+                                                  labelText: '数量',
+                                                  border: OutlineInputBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            8),
+                                                  ),
+                                                  contentPadding:
+                                                      EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 8,
+                                                  ),
+                                                ),
+                                                controller:
+                                                    TextEditingController(
+                                                        text:
+                                                            product['quantity']
+                                                                .toString()),
+                                                onChanged: (value) {
+                                                  setState(() {
+                                                    product['quantity'] = value;
+                                                  });
+                                                },
+                                              ),
+                                            ),
+                                            SizedBox(width: 8),
+                                            Expanded(
+                                              child: TextField(
+                                                decoration: InputDecoration(
+                                                  labelText: '单价',
+                                                  border: OutlineInputBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            8),
+                                                  ),
+                                                  contentPadding:
+                                                      EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 8,
+                                                  ),
+                                                ),
+                                                keyboardType: TextInputType
+                                                    .numberWithOptions(
+                                                        decimal: true),
+                                                controller:
+                                                    TextEditingController(
+                                                        text:
+                                                            product['unitPrice']
+                                                                .toString()),
+                                                onChanged: (value) {
+                                                  setState(() {
+                                                    product['unitPrice'] =
+                                                        double.tryParse(
+                                                                value) ??
+                                                            product[
+                                                                'unitPrice'];
+                                                  });
+                                                },
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ],
+                            ),
+                          ),
+                        ],
+
+                        // 备注
+                        Container(
+                          margin: EdgeInsets.only(bottom: 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '备注',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              TextField(
+                                decoration: InputDecoration(
+                                  filled: true,
+                                  fillColor: Colors.grey[100],
+                                  hintText: '添加备注信息...',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                  contentPadding: EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
+                                ),
+                                controller:
+                                    TextEditingController(text: editRemark),
+                                maxLines: 2,
+                                onChanged: (value) {
+                                  editRemark = value;
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
-                child: Text('再想想'),
+                child: Text('取消', style: TextStyle(color: Colors.grey[700])),
               ),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: Text('确定'),
+              ElevatedButton(
+                onPressed: () {
+                  // 在确认前，用编辑后的值创建新的ParsedData对象并替换到_recognitionResult中
+                  List<Products> updatedProducts = editProducts
+                      .map((p) => Products(
+                            name: p['name'],
+                            quantity: p['quantity'],
+                            unit: p['unit'] ?? '',
+                            unitPrice: p['unitPrice'],
+                          ))
+                      .toList();
+
+                  // 创建新的ParsedData对象
+                  ParsedData updatedParsedData = ParsedData(
+                    type: editType,
+                    amount: editAmount,
+                    category: parsedData.category,
+                    remark: editRemark,
+                    transactionDate: parsedData.transactionDate,
+                    users: parsedData.users,
+                    products: updatedProducts,
+                    containers: parsedData.containers,
+                    tags: parsedData.tags,
+                    classType: editClassType,
+                    settlementStatus: editSettlementStatus,
+                  );
+
+                  // 替换原始数据
+                  _recognitionResult = VoiceRecognitionModel(
+                    text: _recognitionResult!.text,
+                    parsedData: updatedParsedData,
+                  );
+
+                  Navigator.of(context).pop(true);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+                child:
+                    Text('确认记账', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ],
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            actionsPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           ),
         ) ??
         false;
@@ -327,6 +905,10 @@ class AccountingProvider extends ChangeNotifier {
 
   // 开始科大讯飞语音识别
   Future<bool> startXunfeiVoiceRecognition() async {
+    // 每次开始前先清空识别文本
+    _recognizedText = '';
+    notifyListeners();
+
     // 每次都尝试初始化服务，确保状态正确
     final initialized = await initializeXunfeiVoiceService();
     if (!initialized) {
@@ -342,7 +924,6 @@ class AccountingProvider extends ChangeNotifier {
     // 标记服务已初始化
     _isInitialized = true;
 
-    _recognizedText = '';
     _isListening = true;
     notifyListeners();
 
@@ -386,5 +967,10 @@ class AccountingProvider extends ChangeNotifier {
   void dispose() {
     disposeXunfeiVoiceService();
     super.dispose();
+  }
+
+  void clearRecognizedText() {
+    _recognizedText = '';
+    notifyListeners();
   }
 }

@@ -12,13 +12,28 @@ import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 初始化应用配置，这里选择开发环境
-  // 可以根据需要切换环境: dev, staging, prod
-  AppConfig.initialize(Environment.staging);
+  // 初始化日期本地化数据
+  initializeDateFormatting('zh_CN', null);
+
+  // 获取环境变量
+  const String environment = String.fromEnvironment('ENV', defaultValue: 'dev');
+
+  // 初始化应用配置
+  switch (environment) {
+    case 'staging':
+      AppConfig.initialize(Environment.staging);
+      break;
+    case 'prod':
+      AppConfig.initialize(Environment.prod);
+      break;
+    default:
+      AppConfig.initialize(Environment.dev);
+  }
 
   ToastUtil.configLoading();
   runApp(const MyApp());

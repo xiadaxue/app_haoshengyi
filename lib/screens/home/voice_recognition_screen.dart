@@ -39,6 +39,8 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen> {
     if (accountingProvider.isListening) {
       accountingProvider.stopXunfeiVoiceRecognition();
     }
+    // 确保清空识别文本
+    accountingProvider.clearRecognizedText();
     super.dispose();
   }
 
@@ -75,6 +77,9 @@ class _VoiceRecognitionScreenState extends State<VoiceRecognitionScreen> {
     if (accountingProvider.recognizedText.isNotEmpty) {
       // 返回识别结果
       Navigator.of(context).pop(accountingProvider.recognizedText);
+
+      // 清空识别内容
+      accountingProvider.clearRecognizedText();
     } else {
       Navigator.of(context).pop();
     }
